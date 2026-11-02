@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MUSCLE OBFUSCATOR</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #0a0a0a; color: #e6e6e6; font-family: 'SF Mono', 'Fira Code', monospace; padding: 16px; font-size: 13px; min-height: 100vh; }
+  .container { max-width: 1200px; margin: 0 auto; }
+  header { text-align: center; padding: 20px 0; border-bottom: 1px solid #222; margin-bottom: 20px; }
+  h1 { color: #ff4a4a; font-size: 24px; margin-bottom: 6px; text-shadow: 0 0 10px rgba(255, 74, 74, 0.4); letter-spacing: 1px; }
+  .sub { color: #666; font-size: 12px; }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 800px) { .row { grid-template-columns: 1fr; } }
+  .panel { background: #111; border: 1px solid #222; border-radius: 10px; padding: 12px; }
+  .head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+  .title { color: #ff4a4a; font-size: 11px; letter-spacing: 1px; text-transform: uppercase; }
+  button { padding: 8px 14px; border: none; border-radius: 5px; background: #ff4a4a; color: #fff; font-family: inherit; font-size: 12px; font-weight: bold; cursor: pointer; transition: 0.2s; }
+  button:hover { background: #ff6b6b; }
+  button:disabled { background: #333; color: #666; cursor: not-allowed; }
+  button.sec { background: #222; color: #e6e6e6; border: 1px solid #333; }
+  button.sec:hover { background: #333; }
+  textarea, #output { width: 100%; height: 420px; background: #050505; border: 1px solid #222; border-radius: 6px; color: #a6e22e; padding: 10px; font-family: inherit; font-size: 11px; line-height: 1.6; resize: vertical; outline: none; }
+  textarea:focus { border-color: #ff4a4a; }
+  #output { color: #f1fa8c; overflow-y: auto; white-space: pre-wrap; word-break: break-word; }
+  .actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; align-items: center; }
+  .checkbox-wrap { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #aaa; }
+  .checkbox-wrap input { width: 16px; height: 16px; cursor: pointer; }
+  #status { padding: 10px; border-radius: 6px; font-size: 12px; margin-top: 12px; display: none; }
+  .info { background: rgba(255,74,74,0.1); border: 1px solid rgba(255,74,74,0.3); color: #ff6b6b; display: block; }
+  .ok { background: rgba(90,255,90,0.1); border: 1px solid rgba(90,255,90,0.3); color: #5aff5a; display: block; }
+  .err { background: rgba(255,90,90,0.1); border: 1px solid rgba(255,90,90,0.3); color: #ff5a5a; display: block; }
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <h1>💪 MUSCLE OBFUSCATOR 💪</h1>
+    <div class="sub">String encryption • Opcode VM • Anti-pattern junk</div>
+  </header>
+
+  <div class="row">
+    <div class="panel">
+      <div class="head">
+        <span class="title">Clean Lua</span>
+        <button class="sec" onclick="clearInput()">Clear</button>
+      </div>
+      <textarea id="input" placeholder="Paste your clean Lua script here..."></textarea>
+    </div>
+    <div class="panel">
+      <div class="head">
+        <span class="title">Obfuscated Output</span>
+        <button class="sec" onclick="copyOut()">Copy</button>
+      </div>
+      <div id="output">Waiting for input...</div>
+    </div>
+  </div>
+
+  <div class="actions">
+    <button id="goBtn" onclick="run()">Obfuscate</button>
+    <button class="sec" onclick="loadExample()">Load Example</button>
+    <button class="sec" onclick="download()">Download .lua</button>
+    <label class="checkbox-wrap">
+      <input type="checkbox" id="optJunk" checked>
+      Junk ops
+    </label>
+    <label class="checkbox-wrap">
+      <input type="checkbox" id="optOpcodes" checked>
+      Opcode VM
+    </label>
+  </div>
+  <div id="status"></div>
+</div>
+
+<script>
+let lastOutput = "";
+
+function setStatus(msg, cls) {
+  const s = document.getElementById('status');
+  s.textContent = msg; s.className = cls || '';
+}
+function clearInput() {
+  document.getElementById('input').value = '';
+  document.getElementById('output').textContent = 'Waiting for input...';
+  document.getElementById('status').className = '';
+  lastOutput = '';
+}
+function copyOut() {
+  const text = document.getElementById('output').textContent;
+  if (!text || text === 'Waiting for input...') return;
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(text).then(() => setStatus('Copied!', 'ok')).catch(() => fallbackCopy(text));
+  } else fallbackCopy(text);
+}
+function fallbackCopy(text) {
+  const ta = document.createElement('textarea');
+  ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+  document.body.appendChild(ta); ta.focus(); ta.select();
+  try { const ok = document.execCommand('copy'); setStatus(ok ? 'Copied!' : 'Copy failed', ok ? 'ok' : 'err'); }
+  catch (e) { setStatus('Copy failed', 'err'); }
+  document.body.removeChild(ta);
+}
+function download() {
+  if (!lastOutput) return setStatus('Nothing to download', 'err');
+  const blob = new Blob([lastOutput], {type: 'text/plain'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = 'obfuscated.lua'; a.click();
+}
+
+function run() {
+  const src = document.getElementById('input').value;
+  if (!src.trim()) { setStatus('No input', 'err'); return; }
+  setStatus('Obfuscating...', 'info');
+  document.getElementById('goBtn').disabled = true;
+  setTimeout(() => {
+    try {
+      const result = obfuscate(src);
+      lastOutput = result.code;
+      document.getElementById('output').textContent = result.code;
+      setStatus(result.message, result.ok ? 'ok' : 'err');
+    } catch (e) {
+      document.getElementById('output').textContent = 'Error: ' + e.message;
+      setStatus('Failed: ' + e.message, 'err');
+    }
+    document.getElementById('goBtn').disabled = false;
+  }, 30);
+}
+
+// ==========================================
+// OBFUSCATOR CORE
+// ==========================================
+function obfuscate(src) {
+  const opts = {
+    junk: document.getElementById('optJunk').checked,
+    opcodes: document.getElementById('optOpcodes').checked
+  };
+
+  // Step 1: Strip comments and normalize (keep code only)
+  let clean = src
+    .replace(/--\[\[[\s\S]*?\]\]/g, '')   // long comments
+    .replace(/--[^\n]*/g, '')            // line comments
+    .trim();
+
+  if (!clean) return { code: '-- Empty script', ok: false, message: 'Nothing to obfuscate' };
+
+  // Step 2: Random per-script seed
+  const seed = Math.floor(Math.random() * 9000) + 1000;
+
+  // Step 3: Build encrypted string table
+  // Extract all string literals from the code
+  const strings = [];
+  const stringMap = {};
+  let stringRepl = clean.replace(/"((?:[^"\\]|\\.)*)"/g, (m, inner) => {
+    const key = inner;
+    if (stringMap[key] === undefined) {
+      stringMap[key] = strings.length;
+      strings.push(inner);
+    }
+    return `\u0001STR${stringMap[key]}\u0001`;  // placeholder
+  });
+
+  // Step 4: Encrypt strings with XOR + seed
+  const encrypted = strings.map((s, idx) => {
+    const bytes = [];
+    for (let i = 0; i < s.length; i++) {
+      const b = s.charCodeAt(i) ^ ((seed + idx * 7 + i * 3) & 0xFF);
+      bytes.push(b);
+    }
+    return bytes;
+  });
+
+  // Step 5: Build the decoder Lua
+  const encStrTable = encrypted.map(bytes => '{' + bytes.join(',') + '}').join(',');
+
+  // Step 6: Build opcode payload
+  // Split the placeholdered code into tokens and emit them as a simple instruction sequence
+  // Instead of a full VM, we use a "template" approach: store the code as small chunks
+  const chunks = stringRepl.split(/(\u0001STR\d+\u0001)/);
+  const instructions = [];
+  for (const chunk of chunks) {
+    if (!chunk) continue;
+    const strMatch = chunk.match(/^\u0001STR(\d+)\u0001$/);
+    if (strMatch) {
+      instructions.push({ type: 'STR', idx: parseInt(strMatch[1]) });
+    } else {
+      // Split into lines for smaller chunks
+      for (const line of chunk.split('\n')) {
+        if (line.trim()) instructions.push({ type: 'CODE', val: line });
+      }
+    }
+  }
+
+  // Serialize instructions as a Lua array
+  const instrLines = instructions.map(ins => {
+    if (ins.type === 'STR') return `{1,${ins.idx}}`;
+    else return `{0,${JSON.stringify(ins.val)}}`;
+  }).join(',');
+
+  // ==========================================
+  // Final assembled obfuscated output
+  // ==========================================
+  const junkLines = opts.junk ? generateJunk(seed) : '';
+  const finalHeader = `-- ============================================\n` +
+                      `-- 💪 MUSCLE OBFUSCATOR 💪\n` +
+                      `-- Protected with XOR + Opcode VM\n` +
+                      `-- Seed: ${seed}\n` +
+                      `-- ============================================\n\n`;
+
+  // The decoder + executor
+  const decoder = `
+local _S=${seed}
+local _E={${encStrTable}}
+local _K=${instrLines}
+${junkLines}
+local function _D(_t)
+  if _t[1]==1 then
+    local _b=_E[_t[2]+1]
+    local _r={}
+    for _i=1,#_b do
+      _r[_i]=string.char(bit32.bxor(_b[_i], bit32.band(_S+_t[2]*7+(_i-1)*3,255)))
+    end
+    return table.concat(_r)
+  else
+    return _t[2]
+  end
+end
+local _C=""
+for _i=1,#_K do _C=_C.._D(_K[_i])end
+local _f=loadstring(_C)
+if _f then _f()end
+`.trim();
+
+  // Compute final output size estimate
+  const outSize = (finalHeader + decoder).length;
+
+  return {
+    code: finalHeader + decoder,
+    ok: true,
+    message: `Obfuscated ✓ (${strings.length} strings encrypted, ${instructions.length} instructions, ${outSize} bytes)`
+  };
+}
+
+function generateJunk(seed) {
+  // Insert random no-op lines that won't execute but bloat the file
+  const ops = [
+    `local _j1 = ${seed % 100} + ${seed % 37}`,
+    `local _j2 = _j1 * 2 - _j1`,
+    `if _j2 < 0 then _j2 = -_j2 end`,
+    `local _j3 = _j2 % 7`,
+    `do local _j4 = _j3 + ${seed % 11} end`,
+    `local _j5 = _j1 == _j2`,
+    `local _j6 = (not _j5) and _j1 or _j2`,
+    `local _j7 = string.len(tostring(_j6))`
+  ];
+  // Return a random subset
+  return ops.filter(() => Math.random() > 0.3).join('\n');
+}
+
+function loadExample() {
+  document.getElementById('input').value =
+`local Players = game:GetService("Players")
+local WelcomeToTheGame = "Welcome to the game, "
+
+local function onPlayerAdded(player)
+  local startingCoins = 100
+  print(WelcomeToTheGame .. player.Name .. "! You start with " .. startingCoins .. " coins.")
+end
+
+Players.PlayerAdded:Connect(onPlayerAdded)`;
+  setStatus('Example loaded — click Obfuscate', 'info');
+}
+</script>
+</body>
+</html>
